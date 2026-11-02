@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Speed Simulator: Ultimate</title>
+
+<!-- Tailwind (utility styling) + PeerJS (serverless P2P rooms) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  :root { --cy:#00f0ff; --mg:#ff2bd6; --lm:#9dff00; --am:#ffb300; }
+  html, body { margin:0; height:100%; background:#03030a; font-family:'Rajdhani', system-ui, sans-serif; color:#fff; overflow:hidden; -webkit-user-select:none; user-select:none; }
+  canvas#game { position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  .font-orb { font-family:'Orbitron', sans-serif; }
+  .hide { display:none !important; }
+  .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:30; }
+
+  /* ---------- glass panels ---------- */
+  .glass { background:rgba(6,8,22,.62); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+           border:1px solid rgba(0,240,255,.28); box-shadow:0 0 30px rgba(0,240,255,.12), inset 0 0 30px rgba(0,240,255,.04); }
+  .neon-text { text-shadow:0 0 8px rgba(0,240,255,.85), 0 0 22px rgba(0,240,255,.45); }
+
+  /* ---------- animated neon title ---------- */
+  #title { font-family:'Orbitron',sans-serif; font-weight:900; text-align:center; line-height:1.02; margin:0;
+           background:linear-gradient(90deg,#00f0ff,#ff2bd6,#9dff00,#00f0ff); background-size:300% 100%;
+           -webkit-background-clip:text; background-clip:text; color:transparent;
+           animation:hue 7s linear infinite, glow 2.6s ease-in-out infinite alternate; }
+  #title .l1 { display:block; font-size:clamp(26px,6.2vw,68px); letter-spacing:.07em; }
+  #title .l2 { display:block; font-size:clamp(40px,11vw,128px); letter-spacing:.12em; margin-top:.05em; }
+  @keyframes hue { to { background-position:300% 0; } }
+  @keyframes glow { from { filter:drop-shadow(0 0 6px rgba(0,240,255,.7)) drop-shadow(0 0 18px rgba(255,43,214,.35)); }
+                    to   { filter:drop-shadow(0 0 14px rgba(0,240,255,1)) drop-shadow(0 0 40px rgba(255,43,214,.8)); } }
+
+  /* ---------- neon buttons ---------- */
+  .neon-btn { --c:var(--cy); position:relative; width:min(380px,86vw); padding:16px 26px; font-family:'Orbitron',sans-serif; font-weight:700;
+              letter-spacing:.18em; font-size:15px; color:#fff; text-transform:uppercase; cursor:pointer; overflow:hidden;
+              background:linear-gradient(135deg, color-mix(in srgb, var(--c) 24%, transparent), rgba(0,0,0,.55));
+              border:2px solid var(--c); border-radius:12px; text-shadow:0 0 10px var(--c);
+              box-shadow:0 0 14px color-mix(in srgb, var(--c) 45%, transparent), inset 0 0 18px color-mix(in srgb, var(--c) 18%, transparent);
+              transition:transform .15s, box-shadow .2s, background .2s; }
+  .neon-btn::before { content:''; position:absolute; top:0; left:-120%; width:60%; height:100%;
+              background:linear-gradient(100deg,transparent,rgba(255,255,255,.4),transparent); transform:skewX(-20deg); transition:left .6s; }
+  .neon-btn:hover { transform:translateY(-2px) scale(1.03); box-shadow:0 0 26px var(--c), 0 0 60px color-mix(in srgb, var(--c) 40%, transparent), inset 0 0 24px color-mix(in srgb, var(--c) 30%, transparent); }
+  .neon-btn:hover::before { left:140%; }
+  .neon-btn:active { transform:scale(.97); }
+  .neon-btn.small { width:auto; padding:14px 24px; }
+  .neon-btn:disabled { opacity:.45; cursor:not-allowed; }
+  .neon-btn.on { background:linear-gradient(135deg, color-mix(in srgb, var(--c) 60%, transparent), rgba(0,0,0,.35)); animation:pulseBtn 1.2s ease-in-out infinite; }
+  @keyframes pulseBtn { 50% { box-shadow:0 0 34px var(--c), inset 0 0 26px var(--c); } }
+
+  .hud-btn { background:rgba(6,8,22,.7); border:1px solid rgba(0,240,255,.4); color:#bff; border-radius:10px; padding:6px 12px;
+             font-family:'Orbitron',sans-serif; font-size:11px; letter-spacing:.12em; cursor:pointer; transition:.15s; }
+  .hud-btn:hover { background:rgba(0,240,255,.25); color:#fff; }
+
+  /* ---------- lobby slots ---------- */
+  .slot { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,.14);
+          background:rgba(255,255,255,.04); min-height:64px; }
+  .slot.empty { border-style:dashed; color:#7a86a8; animation:pulseEmpty 1.8s ease-in-out infinite; }
+  @keyframes pulseEmpty { 50% { background:rgba(255,255,255,.09); } }
+  .dot { width:38px; height:38px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .badge { font-family:'Orbitron',sans-serif; font-size:10px; letter-spacing:.15em; padding:4px 8px; border-radius:999px; margin-left:auto; border:1px solid; }
+  .badge.rdy { color:#9dff00; border-color:#9dff00; background:rgba(157,255,0,.12); }
+  .badge.wait { color:#ffb300; border-color:#ffb300; background:rgba(255,179,0,.1); }
+  .badge.bot { color:#00f0ff; border-color:#00f0ff; background:rgba(0,240,255,.1); }
+
+  /* ---------- toasts & banner ---------- */
+  #toasts { position:fixed; top:84px; left:50%; transform:translateX(-50%); z-index:60; display:flex; flex-direction:column; gap:8px; align-items:center; pointer-events:none; }
+  .toast { padding:9px 18px; border-radius:10px; font-weight:700; letter-spacing:.05em; background:rgba(6,8,22,.88); border:1px solid var(--cy);
+           box-shadow:0 0 18px rgba(0,240,255,.4); animation:toastIn .25s ease-out; transition:opacity .4s, transform .4s; }
+  .toast.err { border-color:#ff4d6d; box-shadow:0 0 18px rgba(255,77,109,.5); }
+  .toast.out { opacity:0; transform:translateY(-10px); }
+  @keyframes toastIn { from { opacity:0; transform:translateY(-12px) scale(.95); } }
+  #banner { position:fixed; left:50%; top:30%; transform:translate(-50%,-50%) scale(.6); z-index:55; text-align:center; opacity:0; pointer-events:none; transition:all .45s cubic-bezier(.2,1.4,.4,1); }
+  #banner.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  #banner .b1 { font-family:'Orbitron'; font-weight:900; font-size:clamp(24px,6vw,60px); background:linear-gradient(90deg,#9dff00,#00f0ff); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 0 18px rgba(157,255,0,.8)); }
+  #banner .b2 { font-family:'Orbitron'; letter-spacing:.3em; color:#cff; margin-top:6px; font-size:clamp(11px,2vw,16px); }
+  #fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; z-index:80; transition:opacity .25s; }
+  #fade.on { opacity:1; }
+
+  input.neon-input { background:rgba(0,0,0,.5); border:2px solid var(--cy); border-radius:12px; color:#fff; text-align:center; outline:none;
+                     font-family:'Orbitron'; font-weight:700; box-shadow:0 0 14px rgba(0,240,255,.3); }
+  input.neon-input:focus { box-shadow:0 0 26px rgba(0,240,255,.7); }
+  .lvbar { height:8px; border-radius:6px; background:rgba(255,255,255,.12); overflow:hidden; }
+  .lvbar > div { height:100%; background:linear-gradient(90deg,#00f0ff,#9dff00); box-shadow:0 0 10px #00f0ff; transition:width .15s; }
+  @media (max-width:700px) { #gauge-wrap { display:none; } #hint { display:none; } }
+</style>
+</head>
+
+<body>
+<canvas id="game"></canvas>
+
+<!-- =========================== MAIN MENU =========================== -->
+<div id="menu" class="overlay" style="z-index:20">
+  <div class="text-center px-4">
+    <div class="font-orb text-[10px] md:text-sm tracking-[.5em] text-cyan-300/80 mb-4">▸ NEON CITY TRAINING GRID ◂</div>
+    <h1 id="title"><span class="l1">SPEED SIMULATOR</span><span class="l2">ULTIMATE</span></h1>
+  </div>
+  <div class="mt-10 flex flex-col items-center gap-4">
+    <button id="btn-solo"   class="neon-btn" style="--c:#00f0ff">Start Solo Game</button>
+    <button id="btn-create" class="neon-btn" style="--c:#ff2bd6">Create Room</button>
+    <button id="btn-join"   class="neon-btn" style="--c:#9dff00">Join Room</button>
+  </div>
+  <div class="mt-7 flex items-center gap-3">
+    <span class="font-orb text-[10px] tracking-[.25em] text-cyan-200/70">CALLSIGN</span>
+    <input id="callsign" class="neon-input px-3 py-2 text-sm w-44" maxlength="14" spellcheck="false" />
+  </div>
+  <div id="menu-stats" class="mt-5 px-4 text-center text-sm text-cyan-100/80 tracking-wider"></div>
+</div>
+
+<!-- =========================== WORLD HUD =========================== -->
+<div id="hud" class="hide fixed inset-x-0 top-0 z-10 p-3 flex items-start justify-between gap-3" style="pointer-events:none">
+  <div class="glass rounded-xl px-4 py-2" style="min-width:190px">
+    <div class="font-orb text-[10px] tracking-[.3em] text-cyan-300/80">SPEED POWER</div>
+    <div id="hud-power" class="font-orb text-3xl font-black neon-text">0</div>
+    <div id="hud-rate" class="font-bold tracking-wider" style="color:#9dff00">+0/s</div>
+  </div>
+  <div id="gauge-wrap" class="glass rounded-xl px-2 pt-1">
+    <canvas id="gauge" width="440" height="236" style="width:220px;height:118px"></canvas>
+  </div>
+  <div class="flex flex-col items-end gap-2" style="pointer-events:auto">
+    <div id="hud-room" class="glass rounded-xl px-3 py-2 text-sm font-bold tracking-wide"></div>
+    <div class="flex gap-2">
+      <button id="btn-mute" class="hud-btn">SFX ON</button>
+      <button id="btn-menu" class="hud-btn">MENU</button>
+    </div>
+  </div>
+</div>
+
+<div id="tm-info" class="hide fixed left-1/2 bottom-6 z-10 glass rounded-xl px-5 py-3 text-center" style="transform:translateX(-50%);min-width:250px;pointer-events:none">
+  <div id="tm-title" class="font-orb text-sm tracking-widest neon-text"></div>
+  <div class="lvbar mt-2"><div id="tm-bar" style="width:0%"></div></div>
+  <div id="tm-sub" class="text-xs mt-1 text-cyan-100/80 tracking-wider"></div>
+</div>
+<div id="hint" class="hide fixed left-4 bottom-4 z-10 text-xs text-cyan-100/70 leading-5 glass rounded-lg px-3 py-2" style="pointer-events:none;max-width:290px">
+  <b class="text-cyan-300">WASD / ARROWS / TAP</b> to move<br/>
+  Stand on a treadmill to train. Max its <b class="text-lime-300">LEVEL BAR</b> to unlock the next one.<br/>
+  Step into the <b class="text-fuchsia-300">PORTAL</b> to race.
+</div>
+
+<!-- =========================== RACE LOBBY =========================== -->
+<div id="lobby" class="overlay hide" style="background:rgba(2,3,12,.72);backdrop-filter:blur(6px)">
+  <div class="glass rounded-2xl p-6" style="width:min(680px,94vw)">
+    <div class="font-orb text-2xl md:text-3xl font-black text-center neon-text tracking-widest">RACE LOBBY</div>
+    <div id="lobby-sub" class="text-center text-sm text-cyan-100/70 mt-1 tracking-wider"></div>
+    <div id="lobby-slots" class="grid gap-3 mt-5" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr))"></div>
+    <div id="lobby-status" class="text-center mt-4 font-bold tracking-wider text-amber-300"></div>
+    <div class="flex gap-3 mt-5 justify-center flex-wrap">
+      <button id="btn-ready" class="neon-btn small" style="--c:#9dff00">READY</button>
+      <button id="btn-leave" class="neon-btn small" style="--c:#ff4d6d">LEAVE</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== RESULTS =========================== -->
+<div id="results" class="overlay hide" style="background:rgba(2,3,12,.6);backdrop-filter:blur(4px)">
+  <div class="glass rounded-2xl p-6" style="width:min(600px,94vw)">
+    <div class="font-orb text-2xl md:text-3xl font-black text-center neon-text tracking-widest">RACE RESULTS</div>
+    <div id="res-list" class="mt-5 flex flex-col gap-2"></div>
+    <div id="res-reward" class="text-center mt-4 font-bold text-lime-300 tracking-wider"></div>
+    <div class="flex justify-center mt-5"><button id="btn-return" class="neon-btn small" style="--c:#00f0ff">Return to World</button></div>
+  </div>
+</div>
+
+<!-- =========================== JOIN MODAL =========================== -->
+<div id="join-modal" class="overlay hide" style="background:rgba(2,3,12,.75);backdrop-filter:blur(6px);z-index:40">
+  <div class="glass rounded-2xl p-7 text-center" style="width:min(420px,92vw)">
+    <div class="font-orb text-xl font-black neon-text tracking-widest">JOIN ROOM</div>
+    <div class="text-sm text-cyan-100/70 mt-1">Enter your friend's room code</div>
+    <input id="join-code" class="neon-input w-full mt-5 py-4 text-3xl tracking-[.4em]" inputmode="numeric" maxlength="6" placeholder="00000" autocomplete="off" />
+    <div id="join-msg" class="mt-3 text-sm h-5 text-amber-300"></div>
+    <div class="flex gap-3 justify-center mt-4">
+      <button id="join-go" class="neon-btn small" style="--c:#9dff00">Connect</button>
+      <button id="join-cancel" class="neon-btn small" style="--c:#ff4d6d">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== ROOM CREATED MODAL =========================== -->
+<div id="room-modal" class="overlay hide" style="background:rgba(2,3,12,.75);backdrop-filter:blur(6px);z-index:40">
+  <div class="glass rounded-2xl p-7 text-center" style="width:min(440px,92vw)">
+    <div class="font-orb text-xl font-black neon-text tracking-widest">ROOM CREATED</div>
+    <div class="text-sm text-cyan-100/70 mt-1">Share this code with up to 3 friends</div>
+    <div id="room-code-big" class="font-orb font-black mt-4" style="font-size:56px;letter-spacing:.2em;color:#ff2bd6;text-shadow:0 0 18px #ff2bd6">00000</div>
+    <div class="flex gap-3 justify-center mt-5 flex-wrap">
+      <button id="room-copy" class="neon-btn small" style="--c:#ff2bd6">Copy Code</button>
+      <button id="room-enter" class="neon-btn small" style="--c:#00f0ff">Enter World</button>
+    </div>
+  </div>
+</div>
+
+<div id="banner"><div class="b1"></div><div class="b2"></div></div>
+<div id="toasts"></div>
+<div id="fade"></div>
+
+<script>
+/* ==========================================================================
+   SPEED SIMULATOR: ULTIMATE
+   Single-file cyberpunk incremental racer.
+   Sections:  1 Config/Save  2 Utils  3 Audio  4 Particles  5 Drawing helpers
+              6 State  7 Networking (PeerJS)  8 Host logic  9 World  10 Lobby
+              11 Race  12 Rendering  13 UI  14 Main loop
+   ========================================================================== */
+(() => {
+'use strict';
+
+/* ============================ 1. CONFIG / SAVE ============================ */
+const CFG = {
+  WORLD_W: 3000, WORLD_H: 900,
+  // Speed Power per second for each of the 10 treadmills (#1 = +2, #2 = +50, then x3 each step)
+  RATES: [2, 50, 150, 450, 1350, 4050, 12150, 36450, 109350, 328050],
+  TM: { x0: 280, dx: 235, y: 450, w: 150, h: 250 },
+  PORTAL: { x: 2800, y: 450 },
+  SPAWN: { x: 110, y: 450 },
+  MAX_PLAYERS: 4,
+  PREFIX: 'ssu-ultimate-',
+  DECAY: 2.0,            // how fast click-boost energy fades (1/sec)
+  WALK: 310,             // walking speed in the world
+};
+const levelTime = i => 16 + i * 6;   // seconds of training needed to max treadmill i's level bar
+
+// Player colour palette (neon). ci = palette index.
+const PAL = [
+  { c: '#00f0ff', h: 186 }, { c: '#ff2bd6', h: 313 },
+  { c: '#9dff00', h: 80  }, { c: '#ffb300', h: 42  },
+];
+const BOT_NAMES = ['NEON-X', 'VOLT-9', 'GHOST.EXE', 'TURBO-K', 'ZERO-G', 'RAZOR'];
+
+const SAVE_KEY = 'ssu_save_v1';
+let save = {
+  power: 0, xp: Array(10).fill(0), unlocked: 1,
+  bestAvg: 0, wins: 0, races: 0, peak: 0, name: '', muted: false,
+};
+try { Object.assign(save, JSON.parse(localStorage.getItem(SAVE_KEY) || '{}')); } catch (e) {}
+if (!Array.isArray(save.xp) || save.xp.length !== 10) save.xp = Array(10).fill(0);
+save.unlocked = Math.max(1, Math.min(10, save.unlocked | 0));
+if (!save.name) save.name = 'RUNNER-' + Math.floor(1000 + Math.random() * 9000);
+const saveNow = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} };
+
+/* ============================== 2. UTILS ============================== */
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const TAU = Math.PI * 2;
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const angLerp = (a, b, t) => { const d = ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI; return a + d * t; };
+const SUF = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+function fmt(n) {
+  n = Math.max(0, n || 0);
+  if (n < 1000) return (n < 10 && n > 0 && n % 1) ? n.toFixed(1) : Math.floor(n).toString();
+  let i = 0; while (n >= 1000 && i < SUF.length - 1) { n /= 1000; i++; }
+  return (n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)) + SUF[i];
+}
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const cleanName = s => String(s || '').replace(/[^\w \-.]/g, '').slice(0, 14) || 'RUNNER';
+const fmtTime = ms => (ms / 1000).toFixed(2) + 's';
+function rr(c, x, y, w, h, r) { // rounded-rect path
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
+// Race physics -- passive speed grows with Speed Power; every click adds an explosive boost impulse.
+const passiveSpeed = p => 70 + 28 * Math.log10(1 + p);
+const boostMult    = p => 1 + 0.45 * Math.log10(1 + p);
+const boostImpulse = p => 22 * boostMult(p);
+const auraTier     = p => Math.min(8, Math.floor(Math.log10(1 + p)));
+
+/* ============================== 3. AUDIO ============================== */
+const Sfx = {
+  c: null,
+  init() {
+    if (!this.c) { try { this.c = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (this.c && this.c.state === 'suspended') this.c.resume();
+  },
+  tone(f, d = 0.1, type = 'sine', v = 0.06, slide = 0) {
+    if (!this.c || save.muted) return;
+    const t = this.c.currentTime, o = this.c.createOscillator(), g = this.c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t + d);
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(this.c.destination); o.start(t); o.stop(t + d + 0.02);
+  },
+  boost()  { this.tone(260 + Math.random() * 140, 0.09, 'square', 0.03, 480); },
+  tick()   { this.tone(520, 0.12, 'triangle', 0.07); },
+  go()     { this.tone(880, 0.35, 'sawtooth', 0.08, 600); },
+  ui()     { this.tone(660, 0.07, 'triangle', 0.05, 200); },
+  unlock() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.25, 'triangle', 0.08), i * 90)); },
+  finish() { [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => this.tone(f, 0.3, 'square', 0.05), i * 110)); },
+  portal() { this.tone(180, 0.5, 'sawtooth', 0.06, 900); },
+};
+
+/* ============================= 4. PARTICLES ============================= */
+const parts = [];
+function P(o) {
+  if (parts.length > 1600) return;
+  parts.push(Object.assign({ x: 0, y: 0, vx: 0, vy: 0, life: 1, max: 1, size: 3, hue: 180, drag: 0, g: 0, type: 'dot', grow: 0, txt: '' }, o));
+}
+function burst(x, y, n, hue, spd = 280, size = 3, life = 0.7) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, TAU), s = rand(0.2, 1) * spd, l = rand(0.45, 1) * life;
+    P({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: l, max: l, size: rand(1.5, size), hue: hue + rand(-25, 25), drag: 2.2 });
+  }
+}
+function ring(x, y, hue, r = 40) { P({ x, y, life: 0.45, max: 0.45, type: 'ring', size: 6, grow: r * 2.6, hue }); }
+function floatText(x, y, txt, hue) { P({ x, y, vy: -55, life: 1, max: 1, type: 'text', txt, hue, size: 15 }); }
+function updateParts(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.life -= dt;
+    if (p.life <= 0) { parts[i] = parts[parts.length - 1]; parts.pop(); continue; }
+    const k = Math.exp(-p.drag * dt);
+    p.vx *= k; p.vy = p.vy * k + p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.type === 'ring') p.size += p.grow * dt;
+  }
+}
+function drawParts(c) {
+  c.save();
+  for (const p of parts) {
+    const a = clamp(p.life / p.max, 0, 1);
+    if (p.type === 'text') {
+      c.globalCompositeOperation = 'source-over'; c.globalAlpha = a;
+      c.font = '700 ' + p.size + 'px Orbitron, sans-serif'; c.textAlign = 'center';
+      c.fillStyle = `hsl(${p.hue} 100% 72%)`; c.fillText(p.txt, p.x, p.y);
+    } else if (p.type === 'ring') {
+      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+      c.strokeStyle = `hsl(${p.hue} 100% 65%)`; c.lineWidth = 1 + 3 * a;
+      c.beginPath(); c.arc(p.x, p.y, p.size, 0, TAU); c.stroke();
+    } else {
+      c.globalCompositeOperation = 'lighter'; c.globalAlpha = a;
+      c.fillStyle = `hsl(${p.hue} 100% 62%)`;
+      c.beginPath(); c.arc(p.x, p.y, Math.max(.4, p.size * (0.4 + 0.6 * a)), 0, TAU); c.fill();
+    }
+  }
+  c.restore();
+}
+/** Progressive aura: more Speed Power => denser, taller, multi-hue particles. */
+function emitAura(e, x, y, power, ci, dt, mode) {
+  const tier = auraTier(power); if (tier <= 0) return;
+  e.auraAcc = (e.auraAcc || 0) + dt * (4 + tier * 5);
+  const hue = PAL[ci].h;
+  while (e.auraAcc >= 1) {
+    e.auraAcc--;
+    const hh = (tier >= 5 && Math.random() < 0.4) ? (hue + 180) % 360 : hue + rand(-20, 20);
+    if (mode === 'top') {
+      const a = rand(0, TAU), r = rand(10, 22 + tier * 2);
+      P({ x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, vx: Math.cos(a) * 20, vy: Math.sin(a) * 20 - 25, life: rand(.5, 1.1), max: 1.1, size: rand(1.5, 3 + tier * .3), hue: hh, drag: 1 });
+    } else {
+      P({ x: x + rand(-14, 14), y: y - rand(5, 60), vx: rand(-20, 20), vy: rand(-70, -20) - tier * 4, life: rand(.5, 1.1), max: 1.1, size: rand(1.5, 3 + tier * .3), hue: hh });
+    }
+  }
+}
+
+/* ============================ 5. DRAWING HELPERS ============================ */
+/** Top-down runner used in the training world. face: 0 = facing right. */
+function drawTopRunner(c, x, y, ci, power, face, phase, running, name, isMe) {
+  const col = PAL[ci].c, hue = PAL[ci].h, tier = auraTier(power);
+  c.save(); c.translate(x, y);
+  c.fillStyle = 'rgba(0,0,0,.45)'; c.beginPath(); c.ellipse(0, 7, 18, 10, 0, 0, TAU); c.fill();
+  if (tier > 0) {
+    const r = 34 + tier * 5, g = c.createRadialGradient(0, 0, 4, 0, 0, r);
+    g.addColorStop(0, `hsla(${hue},100%,60%,${0.16 + tier * 0.03})`); g.addColorStop(1, 'hsla(0,0%,0%,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
+  }
+  c.rotate(face);
+  const sw = Math.sin(phase) * (running ? 9 : 0);
+  c.strokeStyle = col; c.fillStyle = col; c.lineCap = 'round'; c.shadowColor = col; c.shadowBlur = 12;
+  c.lineWidth = 6;
+  c.beginPath(); c.moveTo(-6, -7); c.lineTo(-6 + sw, -7); c.moveTo(-6, 7); c.lineTo(-6 - sw, 7); c.stroke();           // legs
+  c.lineWidth = 5;
+  c.beginPath(); c.moveTo(3, -12); c.lineTo(3 - sw, -15); c.moveTo(3, 12); c.lineTo(3 + sw, 15); c.stroke();          // arms
+  c.fillStyle = '#0a0c1e'; c.lineWidth = 3;
+  c.beginPath(); c.ellipse(0, 0, 11, 14, 0, 0, TAU); c.fill(); c.stroke();                                           // torso
+  c.fillStyle = col; c.beginPath(); c.arc(5, 0, 7.5, 0, TAU); c.fill();                                              // head
+  c.shadowBlur = 0; c.fillStyle = '#031'; c.fillRect(8, -4, 3, 8);                                                   // visor
+  c.restore();
+  if (name) {
+    c.save(); c.font = '700 12px Rajdhani, sans-serif'; c.textAlign = 'center';
+    c.fillStyle = isMe ? '#fff' : col; c.shadowColor = col; c.shadowBlur = 8; c.fillText(isMe ? name + '  (YOU)' : name, x, y - 32); c.restore();
+  }
+}
+
+/** Side-view runner used on the race track. (x,y) = feet position. */
+function drawSideRunner(c, x, y, ci, phase, bv, alpha = 1, sc = 1) {
+  const col = PAL[ci].c;
+  c.save(); c.translate(x, y); c.scale(sc, sc); c.globalAlpha = alpha;
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = col; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = alpha > 0.9 ? 14 : 0;
+  const lean = clamp(bv / 260, 0, 1) * 0.35 + 0.12, hx = 0, hy = -30;
+  const shx = hx + Math.sin(lean) * 24, shy = hy - Math.cos(lean) * 24;
+  const seg = (a, b, d, e) => { c.beginPath(); c.moveTo(a, b); c.lineTo(d, e); c.stroke(); };
+  for (const o of [Math.PI, 0]) {                                   // back limbs first, front limbs last
+    c.globalAlpha = alpha * (o === Math.PI ? 0.6 : 1);
+    const a = Math.sin(phase + o) * 0.95, kx = hx + Math.sin(a) * 14, ky = hy + Math.cos(a) * 14;
+    const b = a - (0.55 + 0.55 * Math.cos(phase + o));
+    c.lineWidth = 6; seg(hx, hy, kx, ky); seg(kx, ky, kx + Math.sin(b) * 14, ky + Math.cos(b) * 14);          // leg
+    const k = -Math.sin(phase + o) * 1.0, ex = shx + Math.sin(k) * 11, ey = shy + Math.cos(k) * 11;
+    c.lineWidth = 4.5; seg(shx, shy, ex, ey); seg(ex, ey, ex + Math.sin(k + 1.3) * 10, ey + Math.cos(k + 1.3) * 10); // arm
+    if (o === Math.PI) { c.globalAlpha = alpha; c.lineWidth = 9; seg(hx, hy, shx, shy); }                    // torso between
+  }
+  c.globalAlpha = alpha; c.beginPath(); c.arc(shx + Math.sin(lean) * 8, shy - Math.cos(lean) * 9, 8, 0, TAU); c.fill();
+  c.restore();
+}
+
+/** Glowing motion-blur trail behind a racer. */
+function drawTrail(c, x, y, sc, hue, speed, bv) {
+  const boost = clamp(bv / 160, 0, 1.4), len = clamp(speed * 0.35, 20, 300) * (0.6 + boost * 0.6);
+  c.save(); c.globalCompositeOperation = 'lighter';
+  const g = c.createLinearGradient(x - len, 0, x, 0);
+  g.addColorStop(0, `hsla(${hue},100%,60%,0)`); g.addColorStop(1, `hsla(${hue},100%,65%,${0.12 + boost * 0.33})`);
+  c.fillStyle = g; c.beginPath(); c.moveTo(x - len, y - 32 * sc); c.lineTo(x - 6, y - 64 * sc); c.lineTo(x - 6, y - 0 * sc); c.closePath(); c.fill();
+  for (let k = 0; k < 3; k++) {
+    const yy = y - (14 + k * 22) * sc, l = len * (0.6 + 0.4 * hash(k + 3)), gg = c.createLinearGradient(x - l, 0, x, 0);
+    gg.addColorStop(0, `hsla(${hue},100%,70%,0)`); gg.addColorStop(1, `hsla(${hue},100%,80%,${0.3 + boost * 0.4})`);
+    c.strokeStyle = gg; c.lineWidth = 2 * sc; c.beginPath(); c.moveTo(x - l, yy); c.lineTo(x, yy); c.stroke();
+  }
+  c.restore();
+}
+
+/* ================================ 6. STATE ================================ */
+const cv = $('game'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let S = 'menu';                       // scene: menu | world | lobby | race | results
+const G = { t: 0, dt: 0.016, hudT: 0, lobbyT: 0, saveT: 0 };
+const keys = {};
+const cam = { x: 0, y: 0, s: 1 };
+
+const me = { name: save.name, ci: 0, wx: CFG.SPAWN.x, wy: CFG.SPAWN.y, face: 0, phase: 0, tx: null, ty: null, tm: -1,
+             portalCd: 0, bumpCd: 0, auraAcc: 0, floatT: 0, running: false };
+let room = null;                       // network/room state (null on menu)
+const vis = new Map();                 // smoothed visual state of remote players
+let race = newRace();
+let displayPower = save.power, gaugeVal = 0, lobbyEnterAt = 0;
+
+function newRace() {
+  return { active: false, started: false, pos: 0, bv: 0, finished: false, finTime: 0, goAt: 0, phase: 0, camX: 0, lanes: [],
+           rewarded: false, shown: false, lastClick: 0, clicks: [], cps: 0, shake: 0, flash: 0, cdLast: null, cdAt: 0, laneY: 0, sc: 1 };
+}
+const players = () => !room ? [] : room.isHost ? [...room.P.values()] : room.list;
+const myPlayer = () => players().find(p => p.id === room.myId);
+function visOf(id) {
+  let v = vis.get(id);
+  if (!v) { v = { wx: 0, wy: 0, rx: 0, speed: 0, bv: 0, phase: 0, face: 0, init: false, auraAcc: 0, finShown: false }; vis.set(id, v); }
+  return v;
+}
+
+/* ========================== 7. NETWORKING (PeerJS) ========================== */
+function newPlayer(id, name, ci, bot) {
+  return { id, name, ci, bot: !!bot, power: 0, wx: CFG.SPAWN.x, wy: CFG.SPAWN.y, lob: false, rdy: false,
+           rx: 0, bv: 0, fin: null, racing: false, skill: 1, nextClick: 0 };
+}
+function initRoom(o) {
+  room = { isHost: !o.client, solo: !!o.solo, code: o.code || null, peer: o.peer || null, conn: null, conns: new Map(),
+           myId: o.client ? o.id : 'HOST', phase: 'idle', cd: 0, track: 4000, fillIn: -1, results: [], list: [], P: new Map(),
+           lobbyOpenedAt: 0, cdStart: 0, raceStartAt: 0, resultsAt: 0, firstFinAt: 0, endAt: 0, sendT: 0 };
+  vis.clear();
+  if (!o.client) { me.ci = 0; room.P.set('HOST', Object.assign(newPlayer('HOST', me.name, 0, false), { power: save.power })); }
+  else me.ci = o.ci;
+}
+function netSend(conn, m) { try { if (conn && conn.open) conn.send(m); } catch (e) {} }
+
+/** HOST: create a room (unique 5-digit code => PeerJS id). */
+function createRoom(attempt = 0) {
+  if (typeof Peer === 'undefined') { toast('Multiplayer library failed to load. Check your connection.', true); return; }
+  const code = String(Math.floor(10000 + Math.random() * 90000));
+  toast('Creating room…');
+  let done = false, peer;
+  try { peer = new Peer(CFG.PREFIX + code, { debug: 0 }); } catch (e) { toast('Could not start networking.', true); return; }
+  const to = setTimeout(() => { if (!done) { try { peer.destroy(); } catch (e) {} toast('Matchmaking server unreachable. Try Solo mode.', true); } }, 12000);
+  peer.on('open', () => {
+    done = true; clearTimeout(to);
+    initRoom({ solo: false, code, peer });
+    $('room-code-big').textContent = code; $('room-modal').classList.remove('hide'); Sfx.unlock();
+    startWorld(true);
+  });
+  peer.on('connection', hostAccept);
+  peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) {} });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id' && attempt < 6) { clearTimeout(to); try { peer.destroy(); } catch (x) {} createRoom(attempt + 1); }
+    else if (!done) { clearTimeout(to); toast('Room error: ' + (e.type || 'unknown'), true); }
+  });
+}
+function hostAccept(conn) {
+  conn.on('data', m => hostOnMsg(conn, m));
+  conn.on('close', () => hostDrop(conn.peer));
+  conn.on('error', () => hostDrop(conn.peer));
+}
+function hostDrop(id) {
+  if (!room || !room.isHost || !room.P.has(id)) return;
+  toast(room.P.get(id).name + ' left the room'); room.P.delete(id); room.conns.delete(id);
+}
+function hostOnMsg(conn, m) {
+  const R = room; if (!R || !m) return;
+  const id = conn.peer;
+  if (m.t === 'hello') {
+    const humans = [...R.P.values()].filter(p => !p.bot);
+    if (humans.length >= CFG.MAX_PLAYERS || R.P.has(id)) { netSend(conn, { t: 'full' }); setTimeout(() => { try { conn.close(); } catch (e) {} }, 400); return; }
+    const used = new Set(humans.map(p => p.ci)); const ci = [0, 1, 2, 3].find(i => !used.has(i));
+    const p = newPlayer(id, cleanName(m.name), ci, false); R.P.set(id, p); R.conns.set(id, conn);
+    netSend(conn, { t: 'welcome', id, ci, code: R.code }); toast(p.name + ' joined the room'); Sfx.ui(); return;
+  }
+  const p = R.P.get(id); if (!p) return;
+  if (m.t === 'me') {
+    if (Number.isFinite(m.power)) p.power = Math.max(0, m.power);
+    if (Number.isFinite(m.wx)) p.wx = clamp(m.wx, 0, CFG.WORLD_W + 200);
+    if (Number.isFinite(m.wy)) p.wy = clamp(m.wy, 0, CFG.WORLD_H);
+    if (p.racing) {
+      if (Number.isFinite(m.rx)) p.rx = clamp(m.rx, 0, R.track);
+      if (Number.isFinite(m.bv)) p.bv = clamp(m.bv, 0, 2000);
+      if (p.fin == null && Number.isFinite(m.f)) { p.fin = m.f; if (!R.firstFinAt) R.firstFinAt = performance.now(); }
+    }
+  } else if (m.t === 'lobby') {
+    if (m.v && !hostSetLob(id, true)) netSend(conn, { t: 'deny', msg: R.phase !== 'idle' ? 'Race in progress' : 'Lobby is full' });
+    else if (!m.v) hostSetLob(id, false);
+  } else if (m.t === 'ready') {
+    if (p.lob && R.phase === 'idle') p.rdy = !!m.v;
+  }
+}
+function hostSetLob(id, v) {
+  const R = room, p = R.P.get(id); if (!p) return false;
+  if (v) {
+    if (R.phase !== 'idle') return false;
+    if ([...R.P.values()].filter(q => !q.bot && q.lob).length >= CFG.MAX_PLAYERS && !p.lob) return false;
+  }
+  p.lob = v; p.rdy = false; return true;
+}
+
+/** CLIENT: join a room by code. */
+function joinRoom(code) {
+  const msg = $('join-msg');
+  if (typeof Peer === 'undefined') { msg.textContent = 'Multiplayer library failed to load.'; return; }
+  if (!/^\d{4,6}$/.test(code)) { msg.textContent = 'Enter a 4–6 digit room code.'; return; }
+  msg.style.color = '#ffb300'; msg.textContent = 'Connecting…';
+  let peer, finished = false;
+  const fail = t => { if (finished) return; finished = true; clearTimeout(to); try { peer && peer.destroy(); } catch (e) {} msg.style.color = '#ff4d6d'; msg.textContent = t; };
+  const to = setTimeout(() => fail('Connection timed out.'), 12000);
+  try { peer = new Peer({ debug: 0 }); } catch (e) { fail('Could not start networking.'); return; }
+  peer.on('error', e => fail(e.type === 'peer-unavailable' ? 'Room not found.' : 'Network error: ' + (e.type || 'unknown')));
+  peer.on('open', () => {
+    const conn = peer.connect(CFG.PREFIX + code, { reliable: true, serialization: 'json' });
+    conn.on('open', () => netSend(conn, { t: 'hello', name: me.name }));
+    conn.on('data', m => {
+      if (!m) return;
+      if (m.t === 'welcome' && !finished) {
+        finished = true; clearTimeout(to);
+        initRoom({ client: true, id: m.id, ci: m.ci, code: m.code, peer }); room.conn = conn;
+        $('join-modal').classList.add('hide'); startWorld(true); toast('Connected to room ' + m.code); Sfx.unlock();
+      } else if (m.t === 'full') fail('Room is full (max 4 players).');
+      else if (room && room.conn === conn) clientOnMsg(m);
+    });
+    conn.on('close', () => { if (room && room.conn === conn) { toast('Host disconnected', true); toMenu(); } });
+    conn.on('error', () => { if (room && room.conn === conn) { toast('Connection error', true); toMenu(); } });
+  });
+}
+function clientOnMsg(m) {
+  if (m.t === 's') applyState(m);
+  else if (m.t === 'deny') { toast(m.msg || 'Denied', true); if (S === 'lobby') leaveLobby(true); }
+}
+function applyState(m) {
+  const R = room;
+  R.phase = m.ph; R.cd = m.cd; R.fillIn = m.fi; R.track = m.tl;
+  R.list = m.pl.map(a => ({ id: a.i, name: a.n, ci: a.c, bot: !!a.b, power: a.p, wx: a.x, wy: a.y, lob: !!a.l, rdy: !!a.r, rx: a.rx, bv: a.bv, fin: a.f, racing: !!a.k }));
+  if (m.rs) R.results = m.rs;
+}
+function buildState(now) {
+  const R = room;
+  return { t: 's', ph: R.phase, cd: R.cd, fi: R.fillIn, tl: R.track, rs: R.phase === 'finished' ? R.results : null,
+    pl: [...R.P.values()].map(p => ({ i: p.id, n: p.name, c: p.ci, b: p.bot ? 1 : 0, p: p.power, x: Math.round(p.wx), y: Math.round(p.wy),
+      l: p.lob ? 1 : 0, r: p.rdy ? 1 : 0, rx: Math.round(p.rx), bv: Math.round(p.bv), f: p.fin, k: p.racing ? 1 : 0 })) };
+}
+/** Called every frame: pushes our state to the host / broadcasts the room state to clients (~15 Hz). */
+function netTick(dt, now) {
+  const R = room; R.sendT += dt; if (R.sendT < 0.066) return; R.sendT = 0;
+  if (R.isHost) {
+    if (R.conns.size) { const s = buildState(now); for (const c of R.conns.values()) netSend(c, s); }
+  } else {
+    netSend(R.conn, { t: 'me', power: save.power, wx: Math.round(me.wx), wy: Math.round(me.wy),
+      rx: race.active ? Math.round(Math.min(race.pos, R.track)) : 0, bv: Math.round(race.bv), f: race.finished ? race.finTime : null });
+  }
+}
+
+/* ============================ 8. HOST LOGIC ============================ */
+/** Authoritative lobby / countdown / race / results state machine (also runs in Solo mode). */
+function hostTick(dt, now) {
+  const R = room;
+  // mirror our own local data into our player record
+  const self = R.P.get('HOST'); self.power = save.power; self.wx = me.wx; self.wy = me.wy; self.name = me.name;
+  if (race.active && self.racing) { self.rx = Math.min(race.pos, R.track); self.bv = race.bv; if (race.finished && self.fin == null) { self.fin = race.finTime; if (!R.firstFinAt) R.firstFinAt = now; } }
+
+  const all = [...R.P.values()], humLob = all.filter(p => !p.bot && p.lob);
+  if (R.phase === 'idle') {
+    if (!humLob.length) { R.lobbyOpenedAt = 0; R.fillIn = -1; syncBots(0, humLob); }
+    else {
+      if (!R.lobbyOpenedAt) R.lobbyOpenedAt = now;
+      const waited = now - R.lobbyOpenedAt, allReady = humLob.every(p => p.rdy);
+      R.fillIn = waited >= 3000 ? 0 : 3000 - waited;
+      // Solo/lobby rule: after 3s the empty slots are auto-filled with AI bots
+      if (waited >= 3000 || allReady) syncBots(CFG.MAX_PLAYERS - humLob.length, humLob); else syncBots(0, humLob);
+      if (allReady) beginCountdown(now, humLob);  // race starts ONLY once every human in the lobby is READY
+    }
+  } else if (R.phase === 'countdown') {
+    const el = now - R.cdStart; R.cd = Math.max(1, 3 - Math.floor(el / 1000));
+    if (el >= 3000) { R.phase = 'racing'; R.cd = 0; R.raceStartAt = now; R.firstFinAt = 0; R.endAt = 0; }
+  } else if (R.phase === 'racing') {
+    const racers = [...R.P.values()].filter(p => p.racing);
+    for (const b of racers) if (b.bot) simBot(b, dt, now);
+    const hum = racers.filter(p => !p.bot);
+    if (!R.endAt && (!hum.length || hum.every(p => p.fin != null))) R.endAt = now + 1500;
+    if (!R.endAt && R.firstFinAt && now - R.firstFinAt > 20000) R.endAt = now;
+    if (R.endAt && now >= R.endAt) finishRace(now);
+  } else if (R.phase === 'finished') {
+    if (now - R.resultsAt > 10000) {           // reset the arena for the next round
+      R.phase = 'idle'; R.lobbyOpenedAt = 0; R.fillIn = -1;
+      for (const p of [...R.P.values()]) { if (p.bot) R.P.delete(p.id); else { p.lob = false; p.rdy = false; p.racing = false; p.rx = 0; p.bv = 0; p.fin = null; } }
+    }
+  }
+}
+function syncBots(n, humLob) {
+  const R = room, bots = [...R.P.values()].filter(p => p.bot);
+  while (bots.length > n) R.P.delete(bots.pop().id);
+  while (bots.length < n) {
+    const used = new Set([...R.P.values()].map(p => p.name));
+    const name = BOT_NAMES.find(x => !used.has(x)) || 'BOT-' + Math.floor(rand(10, 99));
+    const b = newPlayer('BOT-' + Math.random().toString(36).slice(2, 7), name, 0, true); b.lob = true; b.rdy = true;
+    R.P.set(b.id, b); bots.push(b);
+  }
+  const usedC = new Set(humLob.map(p => p.ci));                    // bots take the colours humans aren't using
+  for (const b of bots) { if (usedC.has(b.ci) || b.ci === undefined) b.ci = [0, 1, 2, 3].find(i => !usedC.has(i)); usedC.add(b.ci); }
+}
+function beginCountdown(now, humLob) {
+  const R = room, maxP = Math.max(...humLob.map(p => p.power), 0);
+  R.track = clamp(3600 + 450 * Math.floor(Math.log10(1 + maxP)), 3600, 8000);   // longer tracks as you grow
+  R.phase = 'countdown'; R.cdStart = now; R.cd = 3; R.results = []; R.firstFinAt = 0;
+  const avg = humLob.reduce((s, p) => s + p.power, 0) / humLob.length;
+  for (const p of R.P.values()) {
+    if (!p.lob) continue;
+    p.racing = true; p.rx = 0; p.bv = 0; p.fin = null; p.rdy = false;
+    if (p.bot) { p.power = avg * rand(0.7, 1.15) + rand(5, 40); p.skill = rand(0.85, 1.1); p.nextClick = rand(100, 400); }
+  }
+}
+function simBot(b, dt, now) {
+  const R = room;
+  if (b.fin == null) {
+    b.nextClick -= dt * 1000;
+    while (b.nextClick <= 0) { b.bv += boostImpulse(b.power) * b.skill; b.nextClick += rand(120, 240) / b.skill; }
+    b.bv *= Math.exp(-CFG.DECAY * dt);
+    b.rx += (passiveSpeed(b.power) + b.bv) * dt;
+    if (b.rx >= R.track) { b.rx = R.track; b.fin = now - R.raceStartAt; if (!R.firstFinAt) R.firstFinAt = now; }
+  } else b.bv *= 0.95;
+}
+function finishRace(now) {
+  const R = room, racers = [...R.P.values()].filter(p => p.racing);
+  racers.sort((a, b) => { const af = a.fin != null, bf = b.fin != null; if (af && bf) return a.fin - b.fin; if (af) return -1; if (bf) return 1; return b.rx - a.rx; });
+  R.results = racers.map((p, i) => ({ id: p.id, name: p.name, ci: p.ci, bot: p.bot, time: p.fin, rank: i + 1 }));
+  R.phase = 'finished'; R.resultsAt = now;
+}
+
+/* ============================== 9. WORLD ============================== */
+const tmX = i => CFG.TM.x0 + i * CFG.TM.dx;
+function startWorld(fresh) {
+  fade(() => {
+    S = 'world'; parts.length = 0;
+    ['menu', 'join-modal', 'lobby', 'results'].forEach(id => $(id).classList.add('hide'));
+    if (!($('room-modal').dataset.keep)) { /* room modal stays until dismissed */ }
+    $('hud').classList.remove('hide'); $('hint').classList.remove('hide');
+    if (fresh) { me.wx = CFG.SPAWN.x; me.wy = CFG.SPAWN.y; me.tx = me.ty = null; }
+    updateRoomHud();
+  });
+}
+function activeTM() {
+  const T = CFG.TM;
+  for (let i = 0; i < save.unlocked; i++) if (Math.abs(me.wx - tmX(i)) < T.w / 2 && Math.abs(me.wy - T.y) < T.h / 2) return i;
+  return -1;
+}
+function updateWorld(dt, now) {
+  const T = CFG.TM; let dx = 0, dy = 0;
+  if (S === 'world') {
+    if (keys['a'] || keys['arrowleft']) dx -= 1; if (keys['d'] || keys['arrowright']) dx += 1;
+    if (keys['w'] || keys['arrowup']) dy -= 1;   if (keys['s'] || keys['arrowdown']) dy += 1;
+    if (dx || dy) { me.tx = me.ty = null; const l = Math.hypot(dx, dy); dx /= l; dy /= l; }
+    else if (me.tx != null) {
+      const vx = me.tx - me.wx, vy = me.ty - me.wy, d = Math.hypot(vx, vy);
+      if (d < 8) me.tx = me.ty = null; else { dx = vx / d; dy = vy / d; }
+    }
+  }
+  me.wx += dx * CFG.WALK * dt; me.wy += dy * CFG.WALK * dt;
+  // locked treadmills are solid
+  for (let i = save.unlocked; i < 10; i++) {
+    const cx = tmX(i), r = 18, l = cx - T.w / 2 - 12 - r, rt = cx + T.w / 2 + 12 + r, t = T.y - T.h / 2 - 14 - r, b = T.y + T.h / 2 + 14 + r;
+    if (me.wx > l && me.wx < rt && me.wy > t && me.wy < b) {
+      const pl = me.wx - l, pr = rt - me.wx, pt = me.wy - t, pb = b - me.wy, m = Math.min(pl, pr, pt, pb);
+      if (m === pl) me.wx = l; else if (m === pr) me.wx = rt; else if (m === pt) me.wy = t; else me.wy = b;
+      if (me.bumpCd <= 0 && i === save.unlocked) { toast(`Max out Treadmill #${i} to unlock #${i + 1}`); me.bumpCd = 2.5; }
+    }
+  }
+  me.wx = clamp(me.wx, 30, CFG.WORLD_W + 120); me.wy = clamp(me.wy, 95, 820);
+  me.bumpCd -= dt; me.portalCd -= dt;
+
+  // animation
+  const moving = !!(dx || dy);
+  me.tm = activeTM();
+  me.running = moving || me.tm >= 0;
+  if (moving) me.face = angLerp(me.face, Math.atan2(dy, dx), 1 - Math.exp(-dt * 16));
+  else if (me.tm >= 0) { me.face = angLerp(me.face, -Math.PI / 2, 1 - Math.exp(-dt * 10)); me.wx = lerp(me.wx, tmX(me.tm), 1 - Math.exp(-dt * 5)); }
+  me.phase += dt * (me.tm >= 0 ? 18 : 14);
+  emitAura(me, me.wx, me.wy, save.power, me.ci, dt, 'top');
+
+  // training
+  let rate = 0;
+  if (me.tm >= 0 && S === 'world') {
+    const i = me.tm; rate = CFG.RATES[i];
+    save.power += rate * dt; save.peak = Math.max(save.peak, save.power);
+    if (save.xp[i] < 1) {
+      save.xp[i] = Math.min(1, save.xp[i] + dt / levelTime(i));
+      if (save.xp[i] >= 1) onLevelMax(i);
+    }
+    me.floatT -= dt;
+    if (me.floatT <= 0) { me.floatT = 0.6; floatText(me.wx + rand(-20, 20), me.wy - 30, '+' + fmt(rate), 120 + i * 17); }
+    if (Math.random() < dt * 20) P({ x: tmX(i) + rand(-60, 60), y: T.y + T.h / 2 - 20, vx: rand(-20, 20), vy: rand(-140, -60), life: 0.6, max: 0.6, size: 2.2, hue: 185 + i * 17 });
+  }
+  world.rate = rate;
+
+  // portal
+  const pd = Math.hypot(me.wx - CFG.PORTAL.x, me.wy - CFG.PORTAL.y);
+  if (S === 'world' && pd < 72 && me.portalCd <= 0) {
+    me.portalCd = 2;
+    if (room.phase !== 'idle') { toast('Race in progress. Wait for the next round!', true); me.wx = CFG.PORTAL.x - 150; me.tx = me.ty = null; }
+    else enterLobby();
+  }
+
+  // camera
+  cam.s = clamp(H / CFG.WORLD_H, 0.5, 1.6);
+  const vw = W / cam.s, target = clamp(me.wx - vw / 2, 0, Math.max(0, CFG.WORLD_W + 200 - vw));
+  cam.x = lerp(cam.x, target, 1 - Math.exp(-dt * 6));
+  cam.y = (H / cam.s - CFG.WORLD_H) / 2;
+}
+const world = { rate: 0 };
+
+function onLevelMax(i) {
+  toast(`Treadmill #${i + 1} LEVEL MAXED!`);
+  if (i === save.unlocked - 1 && save.unlocked < 10) {
+    save.unlocked++; saveNow(); Sfx.unlock();
+    showBanner(`TREADMILL #${i + 2} UNLOCKED`, `+${fmt(CFG.RATES[i + 1])} SPEED POWER / SEC`);
+    const cx = tmX(i + 1), hue = 185 + (i + 1) * 17;
+    burst(cx, CFG.TM.y, 90, hue, 520, 4, 1.1); ring(cx, CFG.TM.y, hue, 120); ring(cx, CFG.TM.y, hue + 40, 200);
+  } else if (i === 9) showBanner('MAX LEVEL — LEGEND', 'ALL TREADMILLS MASTERED');
+}
+
+/* ============================== 10. LOBBY ============================== */
+function enterLobby() {
+  if (room.phase !== 'idle') return;
+  if (room.isHost) {
+    if (!hostSetLob('HOST', true)) { toast('Lobby is full', true); return; }
+  } else netSend(room.conn, { t: 'lobby', v: true });
+  Sfx.portal(); burst(CFG.PORTAL.x, CFG.PORTAL.y, 80, 290, 460, 4, 1);
+  fade(() => { S = 'lobby'; lobbyEnterAt = performance.now(); $('lobby').classList.remove('hide'); renderLobby(); });
+}
+function leaveLobby(silent) {
+  if (room) { if (room.isHost) hostSetLob('HOST', false); else netSend(room.conn, { t: 'lobby', v: false }); }
+  me.wx = CFG.PORTAL.x - 150; me.portalCd = 2; me.tx = me.ty = null;
+  $('lobby').classList.add('hide'); S = 'world'; Sfx.ui();
+}
+function toggleReady() {
+  const mp = myPlayer(), v = !(mp && mp.rdy); Sfx.ui();
+  if (room.isHost) { const p = room.P.get('HOST'); if (p.lob && room.phase === 'idle') p.rdy = v; }
+  else netSend(room.conn, { t: 'ready', v });
+}
+function renderLobby() {
+  if (!room) return;
+  const list = players().filter(p => p.lob);
+  if (!room.isHost && !list.find(p => p.id === room.myId)) list.push({ id: room.myId, name: me.name, ci: me.ci, bot: false, power: save.power, rdy: false });
+  let html = '';
+  for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
+    const p = list[i];
+    if (!p) { html += `<div class="slot empty"><div class="dot" style="border:2px dashed #55608a">?</div><div><div class="font-bold tracking-wider">OPEN SLOT</div><div class="text-xs">${room.fillIn > 0 ? 'Bot joins in ' + Math.ceil(room.fillIn / 1000) + 's' : 'Waiting for runner…'}</div></div></div>`; continue; }
+    const col = PAL[p.ci].c, isMe = p.id === room.myId;
+    const badge = p.bot ? '<span class="badge bot">BOT</span>' : p.rdy ? '<span class="badge rdy">READY</span>' : '<span class="badge wait">WAITING</span>';
+    html += `<div class="slot" style="border-color:${col};box-shadow:0 0 14px ${col}55 inset"><div class="dot" style="background:${col};box-shadow:0 0 14px ${col}">${p.bot ? '🤖' : '🏃'}</div>
+      <div><div class="font-bold tracking-wider" style="color:${col}">${esc(p.name)}${isMe ? ' <span class="text-white/70 text-xs">(you)</span>' : ''}</div><div class="text-xs text-cyan-100/70">⚡ ${fmt(p.power)}</div></div>${badge}</div>`;
+  }
+  $('lobby-slots').innerHTML = html;
+  const hum = list.filter(p => !p.bot), notReady = hum.filter(p => !p.rdy).length;
+  $('lobby-status').textContent = room.phase === 'countdown' ? 'LAUNCHING…' : notReady ? `Waiting for ${notReady} runner${notReady > 1 ? 's' : ''} to ready up…` : 'All set!';
+  $('lobby-sub').textContent = room.code ? 'Room ' + room.code : room.solo ? 'Solo mode — bots fill empty slots after 3 seconds' : '';
+  const mp = myPlayer(), on = !!(mp && mp.rdy), b = $('btn-ready');
+  b.textContent = on ? 'CANCEL READY' : 'READY'; b.classList.toggle('on', on);
+}
+
+/* ============================== 11. RACE ============================== */
+function enterRace() {
+  S = 'race'; parts.length = 0; race = newRace(); race.active = true;
+  race.lanes = players().filter(p => p.lob).map(p => p.id);
+  if (!race.lanes.includes(room.myId)) race.lanes.push(room.myId);
+  race.lanes = race.lanes.slice(0, 4);
+  race.camX = -W * 0.3;
+  for (const v of vis.values()) { v.rx = 0; v.speed = 0; v.bv = 0; v.finShown = false; v.phase = 0; }
+  $('lobby').classList.add('hide'); $('hud').classList.add('hide'); $('hint').classList.add('hide'); $('tm-info').classList.add('hide');
+}
+function onBoost() {
+  const now = performance.now();
+  if (S !== 'race' || !race.started || race.finished || now - race.lastClick < 55) return;
+  race.lastClick = now; race.clicks.push(now);
+  race.bv += boostImpulse(save.power);
+  const hue = PAL[me.ci].h, x = race.pos, y = race.laneY - 30 * race.sc;
+  burst(x + 10, y, 14, hue, 380, 3.6, 0.6); ring(x, y, hue, 30);
+  race.shake = 5; race.flash = 0.22; Sfx.boost();
+}
+function updateRace(dt, now) {
+  const R = room;
+  // countdown beeps
+  if (R.phase === 'countdown' && R.cd !== race.cdLast) { race.cdLast = R.cd; race.cdAt = now; Sfx.tick(); }
+  if (R.phase === 'racing' && !race.started) { race.started = true; race.goAt = now; race.cdAt = now; Sfx.go(); }
+  if (race.started) {
+    const p = save.power;
+    if (!race.finished) {
+      race.bv *= Math.exp(-CFG.DECAY * dt);
+      race.pos += (passiveSpeed(p) + race.bv) * dt;
+      if (race.pos >= R.track) {
+        race.finished = true; race.finTime = now - race.goAt; Sfx.finish();
+        const fx = R.track; for (let h = 0; h < 360; h += 30) burst(fx, race.laneY - 30, 12, h, 520, 4.5, 1.3);
+        showBanner('FINISHED!', fmtTime(race.finTime));
+      }
+    } else {   // coast past the line
+      race.bv *= Math.exp(-3 * dt); race.pos = Math.min(race.pos + (passiveSpeed(p) * 0.5 + race.bv) * dt, R.track + 320);
+    }
+    race.phase += dt * (9 + (passiveSpeed(p) + race.bv) * 0.03);
+  } else race.phase += dt * 3;
+  race.clicks = race.clicks.filter(t => now - t < 1000); race.cps = race.clicks.length;
+  race.shake *= Math.exp(-dt * 12); race.flash *= Math.exp(-dt * 8);
+  race.camX = lerp(race.camX, race.pos - W * 0.3, 1 - Math.exp(-dt * 8));
+
+  if (R.phase === 'finished' && !race.shown) showResults();
+  else if (R.phase === 'idle' && race.started && !race.shown) { S = 'world'; me.wx = CFG.PORTAL.x - 150; $('hud').classList.remove('hide'); }
+}
+function showResults() {
+  race.shown = true; S = 'results'; Sfx.finish();
+  const res = room.results, mine = res.find(r => r.id === room.myId), L = $('res-list');
+  L.innerHTML = res.map(r => {
+    const col = PAL[r.ci].c, medal = ['🥇', '🥈', '🥉'][r.rank - 1] || r.rank + '.', me_ = r.id === room.myId;
+    return `<div class="slot" style="border-color:${me_ ? col : 'rgba(255,255,255,.14)'}"><div class="text-2xl w-9 text-center">${medal}</div>
+      <div class="font-bold tracking-wider" style="color:${col}">${esc(r.name)}${me_ ? ' (you)' : ''}${r.bot ? ' 🤖' : ''}</div>
+      <div class="ml-auto font-orb text-sm">${r.time != null ? fmtTime(r.time) : 'DNF'}</div></div>`;
+  }).join('');
+  let txt = '';
+  if (mine && !race.rewarded) {
+    race.rewarded = true; const i = Math.min(3, mine.rank - 1);
+    const reward = mine.time != null ? Math.floor([600, 320, 160, 80][i] + save.power * [0.2, 0.12, 0.06, 0.03][i]) : 0;
+    save.power += reward; save.peak = Math.max(save.peak, save.power); save.races++; if (mine.rank === 1 && mine.time != null) save.wins++;
+    if (mine.time != null) { const avg = room.track / (mine.time / 1000) * 0.36; if (avg > save.bestAvg) { save.bestAvg = avg; txt = '🏆 NEW RECORD AVG SPEED ' + avg.toFixed(0) + ' km/h  ·  '; } }
+    txt += `+${fmt(reward)} Speed Power`; saveNow();
+  }
+  $('res-reward').textContent = txt; $('results').classList.remove('hide');
+}
+function returnToWorld() {
+  Sfx.ui();
+  if (room) { if (room.isHost) hostSetLob('HOST', false); else netSend(room.conn, { t: 'lobby', v: false }); }
+  fade(() => {
+    $('results').classList.add('hide'); parts.length = 0; race = newRace(); S = 'world';
+    me.wx = CFG.PORTAL.x - 170; me.wy = CFG.PORTAL.y; me.portalCd = 2; me.tx = me.ty = null;
+    $('hud').classList.remove('hide'); $('hint').classList.remove('hide');
+  });
+}
+
+/* ============================== 12. RENDERING ============================== */
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+  cv.width = Math.floor(W * DPR); cv.height = Math.floor(H * DPR);
+}
+/* ---------- menu backdrop: synthwave grid ---------- */
+function drawMenuBg(c, t) {
+  const hz = H * 0.56;
+  let g = c.createLinearGradient(0, 0, 0, hz); g.addColorStop(0, '#02010a'); g.addColorStop(1, '#2b0a4f'); c.fillStyle = g; c.fillRect(0, 0, W, hz);
+  for (let k = 0; k < 90; k++) { c.globalAlpha = 0.25 + 0.75 * Math.abs(Math.sin(t * 1.3 + k)); c.fillStyle = '#fff'; c.fillRect(hash(k) * W, hash(k + 99) * hz * 0.92, 1.5, 1.5); }
+  c.globalAlpha = 1;
+  const r = Math.min(W, H) * 0.2, cx = W / 2, cy = hz - 10;      // retro sun
+  g = c.createLinearGradient(0, cy - r, 0, cy + r); g.addColorStop(0, '#ffe45e'); g.addColorStop(0.55, '#ff4fa8'); g.addColorStop(1, '#8a2be2');
+  c.save(); c.beginPath(); c.rect(0, 0, W, hz); c.clip(); c.shadowColor = '#ff2bd6'; c.shadowBlur = 60; c.fillStyle = g; c.beginPath(); c.arc(cx, cy, r, 0, TAU); c.fill(); c.shadowBlur = 0;
+  c.fillStyle = '#220a44'; for (let k = 0; k < 8; k++) c.fillRect(cx - r, cy + k * r * 0.12 - 4, r * 2, k * 1.6 + 1); c.restore();
+  g = c.createLinearGradient(0, hz, 0, H); g.addColorStop(0, '#12032e'); g.addColorStop(1, '#020106'); c.fillStyle = g; c.fillRect(0, hz, W, H - hz);
+  c.lineWidth = 1.4;
+  for (let k = 0; k <= 22; k++) {                                   // moving horizontal lines
+    const z = (k + (t * 0.6) % 1) / 22, y = hz + (H - hz) * z * z;
+    c.strokeStyle = `rgba(255,43,214,${0.1 + z * 0.6})`; c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke();
+  }
+  for (let k = -22; k <= 22; k++) { c.strokeStyle = 'rgba(0,240,255,.4)'; c.beginPath(); c.moveTo(W / 2 + k * 26, hz); c.lineTo(W / 2 + k * W * 0.11, H); c.stroke(); }
+  c.shadowColor = '#ff2bd6'; c.shadowBlur = 16; c.strokeStyle = '#ff2bd6'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, hz); c.lineTo(W, hz); c.stroke(); c.shadowBlur = 0;
+  c.save(); c.globalCompositeOperation = 'lighter';                  // speed streaks
+  for (let k = 0; k < 9; k++) {
+    const sp = 600 + 300 * hash(k), x = (t * sp + hash(k * 7) * W * 2) % (W * 1.5) - W * 0.25, y = hz + 20 + hash(k * 3) * (H - hz) * 0.8, l = 120 + 200 * hash(k * 5);
+    const gg = c.createLinearGradient(x - l, 0, x, 0); gg.addColorStop(0, 'rgba(0,240,255,0)'); gg.addColorStop(1, k % 2 ? 'rgba(0,240,255,.8)' : 'rgba(255,43,214,.8)');
+    c.strokeStyle = gg; c.lineWidth = 2; c.beginPath(); c.moveTo(x - l, y); c.lineTo(x, y); c.stroke();
+  }
+  c.restore();
+  const rx = (t * 260) % (W + 400) - 200, ry = hz + (H - hz) * 0.62;  // lone runner crossing the grid
+  drawTrail(c, rx, ry, 1.5, 186, 400, 150); drawSideRunner(c, rx, ry, 0, t * 14, 150, 1, 1.5);
+}
+
+/* ---------- training world ---------- */
+function drawTreadmill(c, i, t, active) {
+  const T = CFG.TM, cx = tmX(i), cy = T.y, w = T.w, h = T.h, unlocked = i < save.unlocked;
+  const hue = (185 + i * 17) % 360, col = `hsl(${hue} 100% 60%)`, dim = `hsl(${hue} 30% 30%)`;
+  c.save(); c.translate(cx, cy);
+  const gl = c.createRadialGradient(0, 0, 20, 0, 0, 230); gl.addColorStop(0, `hsla(${hue},100%,50%,${unlocked ? (active ? 0.28 : 0.12) : 0.03})`); gl.addColorStop(1, 'hsla(0,0%,0%,0)');
+  c.fillStyle = gl; c.fillRect(-230, -230, 460, 460);
+  for (let s = -1; s <= 1; s += 2) {                                    // side pylons: more with each tier
+    for (let k = 0; k <= Math.floor(i / 3); k++) {
+      const px = s * (w / 2 + 26), py = -h / 2 + 30 + k * 52;
+      c.fillStyle = '#0b0d1f'; c.strokeStyle = unlocked ? col : dim; c.lineWidth = 2; rr(c, px - 5, py - 14, 10, 28, 4); c.fill(); c.stroke();
+      if (unlocked) { c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 10; c.fillRect(px - 2, py - 8, 4, 16); c.shadowBlur = 0; }
+    }
+  }
+  c.fillStyle = '#0b0d1f'; c.strokeStyle = unlocked ? col : dim; c.lineWidth = 3; c.shadowColor = col; c.shadowBlur = unlocked ? (active ? 28 : 14) : 0;
+  rr(c, -w / 2 - 12, -h / 2 - 14, w + 24, h + 28, 16); c.fill(); c.stroke(); c.shadowBlur = 0;
+  if (i >= 5) { c.fillStyle = unlocked ? col : dim; for (let s = -1; s <= 1; s += 2) { c.beginPath(); c.moveTo(s * (w / 2 + 12), -h / 2 + 10); c.lineTo(s * (w / 2 + 32), -h / 2 + 40); c.lineTo(s * (w / 2 + 12), -h / 2 + 50); c.fill(); } }
+  if (i >= 8) { c.fillStyle = unlocked ? col : dim; for (let k = -2; k <= 2; k++) { c.beginPath(); c.moveTo(k * 22 - 8, -h / 2 - 14); c.lineTo(k * 22, -h / 2 - 34 - (k === 0 ? 10 : 0)); c.lineTo(k * 22 + 8, -h / 2 - 14); c.fill(); } }
+  // console + LEDs
+  c.fillStyle = '#05060f'; rr(c, -w / 2 + 6, -h / 2 - 6, w - 12, 34, 8); c.fill();
+  for (let k = 0; k < 10; k++) { const lit = k <= i && unlocked; c.fillStyle = lit ? col : '#1a1d33'; if (lit) { c.shadowColor = col; c.shadowBlur = 8; } c.fillRect(-w / 2 + 14 + k * 12.4, -h / 2 + 12, 9, 6); c.shadowBlur = 0; }
+  c.font = '900 16px Orbitron'; c.textAlign = 'center'; c.fillStyle = unlocked ? '#fff' : '#667'; c.fillText('#' + (i + 1), 0, -h / 2 + 2);
+  // belt (clipped) with moving chevrons
+  c.save(); rr(c, -w / 2, -h / 2 + 30, w, h - 30, 10); c.clip();
+  c.fillStyle = '#07080f'; c.fillRect(-w / 2, -h / 2 + 30, w, h - 30);
+  const off = (t * (active ? 300 : 45)) % 34;
+  c.strokeStyle = unlocked ? `hsla(${hue},100%,60%,${active ? 0.6 : 0.25})` : 'rgba(120,120,150,.15)'; c.lineWidth = 3;
+  for (let y = -h / 2 + 24 + off; y < h / 2; y += 34) { c.beginPath(); c.moveTo(-w / 2 + 14, y); c.lineTo(0, y + 14); c.lineTo(w / 2 - 14, y); c.stroke(); }
+  c.font = '700 15px Orbitron'; c.fillStyle = unlocked ? col : '#556'; c.shadowColor = col; c.shadowBlur = unlocked ? 10 : 0;
+  c.fillText('+' + fmt(CFG.RATES[i]) + ' /s', 0, h / 2 - 26); c.shadowBlur = 0;
+  c.restore();
+  if (active) { c.strokeStyle = col; c.lineWidth = 2; c.globalAlpha = 0.4 + 0.4 * Math.sin(t * 8); rr(c, -w / 2 - 20, -h / 2 - 22, w + 40, h + 44, 20); c.stroke(); c.globalAlpha = 1; }
+  if (!unlocked) {                                                      // lock overlay
+    c.fillStyle = 'rgba(2,3,10,.62)'; rr(c, -w / 2 - 12, -h / 2 - 14, w + 24, h + 28, 16); c.fill();
+    c.strokeStyle = '#8890b8'; c.lineWidth = 6; c.beginPath(); c.arc(0, -8, 17, Math.PI, 0); c.stroke();
+    c.fillStyle = '#8890b8'; rr(c, -24, -8, 48, 36, 6); c.fill(); c.fillStyle = '#05060f'; c.beginPath(); c.arc(0, 10, 5, 0, TAU); c.fill(); c.fillRect(-2, 10, 4, 10);
+    c.font = '700 11px Orbitron'; c.fillStyle = '#aab'; c.fillText(i === save.unlocked ? 'MAX #' + i + ' TO UNLOCK' : 'LOCKED', 0, 56);
+  }
+  // level bar under the treadmill
+  const lv = unlocked ? save.xp[i] : 0, bw = w + 24, by = h / 2 + 30;
+  c.fillStyle = 'rgba(255,255,255,.12)'; rr(c, -bw / 2, by, bw, 12, 6); c.fill();
+  if (lv > 0) { const g = c.createLinearGradient(-bw / 2, 0, bw / 2, 0); g.addColorStop(0, col); g.addColorStop(1, '#9dff00'); c.fillStyle = g; c.shadowColor = col; c.shadowBlur = 10; rr(c, -bw / 2, by, Math.max(10, bw * lv), 12, 6); c.fill(); c.shadowBlur = 0; }
+  c.font = '700 11px Orbitron'; c.fillStyle = '#cfe'; c.fillText(!unlocked ? '' : lv >= 1 ? 'LEVEL MAX' : 'LEVEL ' + Math.floor(lv * 100) + '%', 0, by + 28);
+  c.restore();
+}
+function drawPortal(c, t) {
+  const p = CFG.PORTAL, open = room && room.phase === 'idle';
+  c.save(); c.translate(p.x, p.y); c.globalCompositeOperation = 'lighter';
+  const hue = open ? 290 : 0, g = c.createRadialGradient(0, 0, 4, 0, 0, 120);
+  g.addColorStop(0, `hsla(${hue + 40},100%,70%,.95)`); g.addColorStop(0.45, `hsla(${hue},100%,50%,.45)`); g.addColorStop(1, 'hsla(0,0%,0%,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, 120, 0, TAU); c.fill();
+  for (let k = 0; k < 4; k++) {
+    c.strokeStyle = `hsla(${hue + k * 30},100%,65%,${0.9 - k * 0.15})`; c.lineWidth = 4 - k * 0.6; c.setLineDash([26 - k * 4, 14 + k * 4]);
+    c.lineDashOffset = -t * (60 + k * 40) * (k % 2 ? -1 : 1); c.beginPath(); c.arc(0, 0, 84 - k * 15, 0, TAU); c.stroke();
+  }
+  c.setLineDash([]);
+  for (let k = 0; k < 3; k++) { const a = t * 2 + k * 2.1; c.fillStyle = `hsla(${hue + 60},100%,80%,.6)`; c.beginPath(); c.arc(Math.cos(a) * 30, Math.sin(a) * 30, 5, 0, TAU); c.fill(); }
+  c.restore();
+  if (Math.random() < 0.6) { const a = rand(0, TAU); P({ x: p.x + Math.cos(a) * 95, y: p.y + Math.sin(a) * 95, vx: -Math.cos(a) * 90 - Math.sin(a) * 60, vy: -Math.sin(a) * 90 + Math.cos(a) * 60, life: 0.9, max: 0.9, size: 2.4, hue: hue + 280 }); }
+  c.save(); c.textAlign = 'center'; c.font = '900 18px Orbitron'; c.fillStyle = open ? '#ff9bf0' : '#ff6b6b'; c.shadowColor = open ? '#ff2bd6' : '#f33'; c.shadowBlur = 14;
+  c.fillText('RACE PORTAL', p.x, p.y - 112); c.font = '700 11px Orbitron'; c.fillStyle = '#cfe'; c.shadowBlur = 0;
+  c.fillText(open ? 'STEP IN TO ENTER LOBBY' : 'RACE IN PROGRESS', p.x, p.y - 94); c.restore();
+}
+function renderWorld(c, t) {
+  // floor
+  let g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#05060f'); g.addColorStop(1, '#0b0620'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.save(); c.scale(cam.s, cam.s); c.translate(-cam.x, cam.y);
+  const vw = W / cam.s, x0 = Math.floor(cam.x / 100) * 100;
+  c.strokeStyle = 'rgba(0,240,255,.07)'; c.lineWidth = 1;
+  for (let x = x0; x < cam.x + vw + 100; x += 100) { c.beginPath(); c.moveTo(x, 60); c.lineTo(x, 850); c.stroke(); }
+  for (let y = 60; y <= 850; y += 100) { c.beginPath(); c.moveTo(cam.x, y); c.lineTo(cam.x + vw, y); c.stroke(); }
+  c.fillStyle = 'rgba(20,10,50,.55)'; c.fillRect(cam.x, 0, vw, 60); c.fillRect(cam.x, 850, vw, 50);        // walls
+  for (const [y, col] of [[60, '#ff2bd6'], [850, '#00f0ff']]) { c.shadowColor = col; c.shadowBlur = 18; c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(cam.x, y); c.lineTo(cam.x + vw, y); c.stroke(); c.shadowBlur = 0; }
+  for (let x = Math.floor(cam.x / 260) * 260; x < cam.x + vw + 260; x += 260) {                            // hanging lamps
+    const a = 0.5 + 0.5 * Math.sin(t * 2 + x); c.fillStyle = `rgba(255,43,214,${0.25 + a * 0.3})`; c.beginPath(); c.arc(x + 130, 30, 6, 0, TAU); c.fill();
+    c.fillStyle = `rgba(0,240,255,${0.2 + a * 0.2})`; c.beginPath(); c.arc(x + 130, 880, 6, 0, TAU); c.fill();
+  }
+  // start pad
+  c.fillStyle = 'rgba(0,240,255,.07)'; rr(c, 40, 330, 120, 240, 16); c.fill(); c.strokeStyle = 'rgba(0,240,255,.4)'; c.lineWidth = 2; c.stroke();
+  c.font = '700 12px Orbitron'; c.fillStyle = 'rgba(0,240,255,.6)'; c.textAlign = 'center'; c.fillText('START', 100, 320);
+  for (let i = 0; i < 10; i++) { const cx = tmX(i); if (cx > cam.x - 250 && cx < cam.x + vw + 250) drawTreadmill(c, i, t, me.tm === i && S === 'world'); }
+  drawPortal(c, t);
+  // remote players that are out in the world (not in lobby/race)
+  const list = [];
+  for (const p of players()) if (p.id !== room.myId && !p.bot && !p.lob) { const v = visOf(p.id); list.push({ y: v.wy, f: () => { emitAura(v, v.wx, v.wy, p.power, p.ci, G.dt, 'top'); drawTopRunner(c, v.wx, v.wy, p.ci, p.power, v.face, v.phase, true, p.name, false); } }); }
+  if (S === 'world' || S === 'lobby') list.push({ y: me.wy, f: () => drawTopRunner(c, me.wx, me.wy, me.ci, save.power, me.face, me.phase, me.running, me.name, true) });
+  list.sort((a, b) => a.y - b.y).forEach(o => o.f());
+  drawParts(c);
+  if (me.tx != null) { c.strokeStyle = 'rgba(0,240,255,.6)'; c.lineWidth = 2; c.beginPath(); c.arc(me.tx, me.ty, 8 + 3 * Math.sin(t * 10), 0, TAU); c.stroke(); }
+  c.restore();
+}
+
+/* ---------- race side-scroller ---------- */
+function drawSkyline(c, camX, par, seed, hue, minH, maxH, bw, base, windows) {
+  const off = camX * par, first = Math.floor(off / bw) - 1, last = Math.ceil((off + W) / bw) + 1;
+  for (let k = first; k <= last; k++) {
+    const bh = minH + (maxH - minH) * hash(k * seed), bwid = bw * (0.7 + 0.3 * hash(k * seed + 7)), x = k * bw - off, top = base - bh;
+    c.fillStyle = windows ? '#0b0720' : '#0a0518'; c.fillRect(x, top, bwid, bh);
+    c.strokeStyle = `hsla(${(hue + hash(k) * 70) % 360},100%,60%,${windows ? 0.8 : 0.4})`; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, top); c.lineTo(x + bwid, top); c.stroke();
+    if (windows) {
+      for (let wy = top + 8, r = 0; wy < base - 8; wy += 15, r++) for (let wx = x + 6, q = 0; wx < x + bwid - 8; wx += 13, q++) {
+        if (hash(k * 31 + r * 7 + q * 3) > 0.62) { c.fillStyle = `hsla(${(hue + hash(r + q) * 120) % 360},100%,65%,${0.35 + 0.4 * hash(r * q + k)})`; c.fillRect(wx, wy, 6, 8); }
+      }
+    }
+  }
+}
+function renderRace(c, t, dt, now) {
+  const R = room, track = R.track;
+  const laneH = clamp(H * 0.12, 64, 104), trackH = laneH * 4, trackTop = Math.round(H * 0.52 - trackH / 2 + 30), trackBot = trackTop + trackH;
+  const sc = laneH / 92, laneFeet = i => trackTop + laneH * i + laneH * 0.8;
+  const camX = race.camX, v = race.started ? passiveSpeed(save.power) + race.bv : 0;
+  const myLane = Math.max(0, race.lanes.indexOf(R.myId)); race.laneY = laneFeet(myLane); race.sc = sc;
+  c.save();
+  if (race.shake > 0.3) c.translate(rand(-race.shake, race.shake) * 0.5, rand(-race.shake, race.shake) * 0.5);
+  // sky
+  let g = c.createLinearGradient(0, 0, 0, trackTop); g.addColorStop(0, '#03010c'); g.addColorStop(1, '#2a0a4a'); c.fillStyle = g; c.fillRect(-20, -20, W + 40, trackTop + 20);
+  for (let k = 0; k < 70; k++) { c.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(t + k)); c.fillStyle = '#fff'; c.fillRect(((hash(k) * W * 1.4 - camX * 0.04) % W + W) % W, hash(k + 40) * trackTop * 0.8, 1.5, 1.5); }
+  c.globalAlpha = 1;
+  g = c.createRadialGradient(W * 0.72, trackTop - 30, 10, W * 0.72, trackTop - 30, W * 0.5); g.addColorStop(0, 'rgba(255,43,214,.55)'); g.addColorStop(1, 'rgba(255,43,214,0)'); c.fillStyle = g; c.fillRect(0, 0, W, trackTop);
+  drawSkyline(c, camX, 0.15, 12.9, 280, trackTop * 0.18, trackTop * 0.5, 90, trackTop, false);
+  drawSkyline(c, camX, 0.42, 7.3, 190, trackTop * 0.25, trackTop * 0.75, 120, trackTop, true);
+  // track surface
+  g = c.createLinearGradient(0, trackTop, 0, trackBot); g.addColorStop(0, '#120a2a'); g.addColorStop(1, '#070413'); c.fillStyle = g; c.fillRect(-20, trackTop, W + 40, trackH);
+  for (let i = 0; i < 4; i++) {
+    const id = race.lanes[i], pl = id && players().find(p => p.id === id), hue = pl ? PAL[pl.ci].h : 200;
+    c.fillStyle = `hsla(${hue},100%,50%,${id === R.myId ? 0.12 : 0.05})`; c.fillRect(-20, trackTop + laneH * i, W + 40, laneH);
+  }
+  c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1;
+  for (let x = Math.floor(camX / 100) * 100; x < camX + W + 100; x += 100) { c.beginPath(); c.moveTo(x - camX, trackTop); c.lineTo(x - camX - 22, trackBot); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,.28)'; c.setLineDash([30, 26]); c.lineDashOffset = camX;
+  for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(0, trackTop + laneH * i); c.lineTo(W, trackTop + laneH * i); c.stroke(); } c.setLineDash([]);
+  for (const [y, col] of [[trackTop, '#ff2bd6'], [trackBot, '#00f0ff']]) { c.shadowColor = col; c.shadowBlur = 14; c.strokeStyle = col; c.lineWidth = 3; c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke(); c.shadowBlur = 0; }
+  g = c.createLinearGradient(0, trackBot, 0, H); g.addColorStop(0, '#0a0420'); g.addColorStop(1, '#020106'); c.fillStyle = g; c.fillRect(0, trackBot + 2, W, H - trackBot);
+  // distance markers, start & finish
+  c.textAlign = 'center'; c.font = '700 13px Orbitron';
+  for (let m = 500; m < track; m += 500) { const x = m - camX; if (x > -60 && x < W + 60) { c.fillStyle = 'rgba(0,240,255,.8)'; c.fillText(m + 'm', x, trackBot + 26); c.fillRect(x - 1, trackBot + 4, 2, 10); } }
+  const sx = -camX; if (sx > -80 && sx < W + 80) { c.fillStyle = 'rgba(255,255,255,.85)'; c.fillRect(sx - 2, trackTop, 4, trackH); c.fillStyle = '#fff'; c.fillText('START', sx, trackTop - 10); }
+  const fx = track - camX;
+  if (fx > -200 && fx < W + 200) {
+    const q = laneH / 4;
+    for (let r = 0; r < 16; r++) for (let k = 0; k < 2; k++) { c.fillStyle = (r + k) % 2 ? '#fff' : '#111'; c.fillRect(fx + k * q, trackTop + r * q, q, q); }
+    c.shadowColor = '#9dff00'; c.shadowBlur = 24; c.fillStyle = '#9dff00'; c.fillRect(fx - 4, trackTop - 120, 6, 120 + trackH); c.shadowBlur = 0;
+    c.fillStyle = 'rgba(8,12,24,.92)'; c.strokeStyle = '#9dff00'; c.lineWidth = 3; rr(c, fx - 85, trackTop - 130, 170, 44, 8); c.fill(); c.stroke();
+    c.font = '900 22px Orbitron'; c.fillStyle = '#9dff00'; c.shadowColor = '#9dff00'; c.shadowBlur = 14; c.fillText('FINISH', fx, trackTop - 99); c.shadowBlur = 0;
+  }
+  // runners
+  const order = race.lanes.map(id => ({ id, x: id === R.myId ? race.pos : visOf(id).rx })).sort((a, b) => b.x - a.x);
+  for (let i = 0; i < race.lanes.length; i++) {
+    const id = race.lanes[i], pl = players().find(p => p.id === id); if (!pl) continue;
+    const isMe = id === R.myId, vs = isMe ? null : visOf(id), y = laneFeet(i), hue = PAL[pl.ci].h;
+    const x = (isMe ? race.pos : vs.rx) - camX, bv = isMe ? race.bv : vs.bv, spd = isMe ? v : Math.max(0, vs.speed);
+    const phase = isMe ? race.phase : vs.phase, power = isMe ? save.power : pl.power;
+    if (!isMe) { vs.phase += dt * (race.started ? 9 + spd * 0.03 : 3); if (pl.fin != null && !vs.finShown) { vs.finShown = true; burst(track, y - 30, 40, hue, 420, 4, 1); } }
+    if (x < -150 || x > W + 150) continue;
+    if (race.started && spd > 40) drawTrail(c, x, y, sc, hue, spd, bv);
+    if (bv > 70) for (let k = 1; k <= 3; k++) drawSideRunner(c, x - k * (14 + bv * 0.08), y, pl.ci, phase - k * 0.5, bv, 0.22 / k, sc);
+    c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(x, y + 2, 18 * sc, 5 * sc, 0, 0, TAU); c.fill();
+    drawSideRunner(c, x, y, pl.ci, phase, bv, 1, sc);
+    const ae = isMe ? me : vs; emitAura(ae, (isMe ? race.pos : vs.rx), y - 4 * sc, power, pl.ci, dt, 'side');
+    if (race.started && !(isMe && race.finished) && Math.random() < dt * (10 + bv * 0.1)) P({ x: (isMe ? race.pos : vs.rx) - 10, y: y - rand(4, 50) * sc, vx: -rand(40, 140), vy: rand(-20, 20), life: 0.5, max: 0.5, size: rand(1.5, 3), hue });
+    c.font = '700 12px Rajdhani'; c.textAlign = 'center'; c.fillStyle = isMe ? '#fff' : PAL[pl.ci].c; c.fillText(isMe ? 'YOU' : pl.name, x, y - 76 * sc);
+  }
+  c.save(); c.translate(-camX, 0); drawParts(c); c.restore();
+  // speed lines overlay
+  const sf = clamp(v / 520, 0, 1);
+  if (sf > 0.2) {
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 26; k++) {
+      const x = W - ((t * (900 + 700 * hash(k)) + hash(k * 5) * W * 2) % (W * 1.6)), y = hash(k * 9) * H, l = 60 + 220 * hash(k * 2) * sf;
+      c.strokeStyle = `rgba(160,240,255,${0.04 + 0.2 * sf * hash(k + 4)})`; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y); c.stroke();
+    }
+    c.restore();
+  }
+  if (race.flash > 0.02) { c.fillStyle = `rgba(${PAL[me.ci].h > 150 ? '0,240,255' : '255,255,255'},${race.flash * 0.25})`; c.fillRect(0, 0, W, H); }
+  c.restore();
+
+  /* ---- race HUD (screen space) ---- */
+  const bx = 16, bw = W - 32, rank = order.findIndex(o => o.id === R.myId) + 1;
+  c.fillStyle = 'rgba(255,255,255,.14)'; rr(c, bx, 14, bw, 8, 4); c.fill();
+  for (const o of order.slice().reverse()) {
+    const pl = players().find(p => p.id === o.id); if (!pl) continue; const f = clamp(o.x / track, 0, 1), me_ = o.id === R.myId;
+    c.fillStyle = PAL[pl.ci].c; c.shadowColor = PAL[pl.ci].c; c.shadowBlur = 10; c.beginPath(); c.arc(bx + f * bw, 18, me_ ? 9 : 6, 0, TAU); c.fill(); c.shadowBlur = 0;
+    if (me_) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(); }
+  }
+  c.textAlign = 'left'; c.font = `900 ${Math.round(clamp(W * 0.07, 22, 40))}px Orbitron`; c.fillStyle = '#fff'; c.shadowColor = '#00f0ff'; c.shadowBlur = 16;
+  c.fillText(['1ST', '2ND', '3RD', '4TH'][rank - 1] || '-', 18, 70); c.shadowBlur = 0;
+  c.font = '700 12px Orbitron'; c.fillStyle = '#9ff'; c.fillText('OF ' + race.lanes.length + '   ·   ' + (race.started && !race.finished ? ((now - race.goAt) / 1000).toFixed(1) + 's' : race.finished ? fmtTime(race.finTime) : '0.0s'), 18, 92);
+  c.textAlign = 'right'; c.font = `900 ${Math.round(clamp(W * 0.06, 20, 34))}px Orbitron`; c.fillStyle = '#9dff00'; c.shadowColor = '#9dff00'; c.shadowBlur = 14;
+  c.fillText(Math.round(v * 0.36) + ' km/h', W - 18, 70); c.shadowBlur = 0;
+  c.font = '700 12px Orbitron'; c.fillStyle = '#ff9bf0'; c.fillText('BOOST x' + boostMult(save.power).toFixed(1) + '   ·   ' + race.cps + ' clicks/s', W - 18, 92);
+  c.fillStyle = 'rgba(255,255,255,.14)'; rr(c, W - 178, 102, 160, 7, 3); c.fill();
+  g = c.createLinearGradient(W - 178, 0, W - 18, 0); g.addColorStop(0, '#00f0ff'); g.addColorStop(1, '#ff2bd6'); c.fillStyle = g; rr(c, W - 178, 102, Math.max(6, 160 * clamp(race.bv / 220, 0, 1)), 7, 3); c.fill();
+  // countdown / GO / prompt
+  c.textAlign = 'center';
+  const sinceCd = (now - race.cdAt) / 1000;
+  if (R.phase === 'countdown' || (race.started && now - race.goAt < 900)) {
+    const txt = R.phase === 'countdown' ? String(R.cd) : 'GO!', pulse = 1 + 0.6 * Math.exp(-sinceCd * 5), size = Math.min(W, H) * 0.3 * pulse;
+    c.font = `900 ${size}px Orbitron`; c.fillStyle = txt === 'GO!' ? '#9dff00' : '#fff'; c.shadowColor = txt === 'GO!' ? '#9dff00' : '#ff2bd6'; c.shadowBlur = 50; c.globalAlpha = txt === 'GO!' ? clamp(1 - (now - race.goAt) / 900, 0, 1) : 1;
+    c.fillText(txt, W / 2, H * 0.34 + size * 0.2); c.globalAlpha = 1; c.shadowBlur = 0;
+  } else if (race.started && !race.finished) {
+    c.font = `900 ${Math.round(clamp(W * 0.035, 14, 24))}px Orbitron`; c.fillStyle = `rgba(255,255,255,${0.55 + 0.4 * Math.sin(t * 8)})`; c.shadowColor = '#00f0ff'; c.shadowBlur = 14;
+    c.fillText('CLICK  ·  TAP  ·  SPACE  TO  BOOST!', W / 2, H - 28); c.shadowBlur = 0;
+  } else if (race.finished && S === 'race') {
+    c.font = '900 22px Orbitron'; c.fillStyle = '#9dff00'; c.shadowColor = '#9dff00'; c.shadowBlur = 14; c.fillText('FINISHED — waiting for others…', W / 2, H - 28); c.shadowBlur = 0;
+  } else if (!race.started && R.phase !== 'countdown') {
+    c.font = '700 18px Orbitron'; c.fillStyle = '#9ff'; c.fillText('GET READY…', W / 2, H - 28);
+  }
+}
+
+/* ============================== 13. UI ============================== */
+function toast(msg, err) {
+  const d = document.createElement('div'); d.className = 'toast' + (err ? ' err' : ''); d.textContent = msg; $('toasts').appendChild(d);
+  setTimeout(() => d.classList.add('out'), 2600); setTimeout(() => d.remove(), 3100);
+  while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
+}
+let bannerT = 0;
+function showBanner(a, b) { const el = $('banner'); el.querySelector('.b1').textContent = a; el.querySelector('.b2').textContent = b || ''; el.classList.add('show'); clearTimeout(bannerT); bannerT = setTimeout(() => el.classList.remove('show'), 2600); }
+function fade(cb) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { cb && cb(); setTimeout(() => f.classList.remove('on'), 60); }, 260); }
+function refreshMenuStats() {
+  $('menu-stats').innerHTML = `⚡ SPEED POWER <b class="text-white">${fmt(save.power)}</b> &nbsp;·&nbsp; PEAK <b class="text-white">${fmt(save.peak)}</b> &nbsp;·&nbsp; BEST AVG <b class="text-white">${save.bestAvg ? save.bestAvg.toFixed(0) + ' km/h' : '--'}</b> &nbsp;·&nbsp; WINS <b class="text-white">${save.wins}</b> / ${save.races} RACES`;
+}
+function updateRoomHud() {
+  if (!room) return;
+  const n = players().filter(p => !p.bot).length;
+  $('hud-room').innerHTML = room.code
+    ? `<span class="text-fuchsia-300">ROOM ${room.code}</span> <span class="text-cyan-100/70">· ${n}/4</span> <button id="hud-copy" style="pointer-events:auto" class="hud-btn ml-1">COPY</button>`
+    : '<span class="text-cyan-200">SOLO MODE</span>';
+  const b = $('hud-copy'); if (b) b.onclick = () => copyCode(room.code);
+}
+function copyCode(code) { try { navigator.clipboard.writeText(code); toast('Room code copied: ' + code); } catch (e) { toast('Room code: ' + code); } }
+function updateHud(dt) {
+  displayPower = lerp(displayPower, save.power, 1 - Math.exp(-dt * 8));
+  $('hud-power').textContent = fmt(displayPower); $('hud-rate').textContent = '+' + fmt(world.rate) + ' /s';
+  const info = $('tm-info');
+  if (me.tm >= 0 && S === 'world') {
+    const i = me.tm; info.classList.remove('hide');
+    $('tm-title').textContent = `TREADMILL #${i + 1}  ·  +${fmt(CFG.RATES[i])} / SEC`; $('tm-bar').style.width = (save.xp[i] * 100).toFixed(1) + '%';
+    $('tm-sub').textContent = save.xp[i] >= 1 ? 'LEVEL MAXED' : 'LEVEL ' + Math.floor(save.xp[i] * 100) + '%' + (i === save.unlocked - 1 && save.unlocked < 10 ? ' — fill the bar to unlock #' + (i + 2) : '');
+  } else info.classList.add('hide');
+  if (G.hudT <= 0) { G.hudT = 1; updateRoomHud(); }
+}
+function drawGauge(dt) {
+  const gc = $('gauge').getContext('2d'), w = 440, h = 236, cx = w / 2, cy = 196, r = 150;
+  gc.clearRect(0, 0, w, h);
+  const target = clamp(Math.log10(1 + world.rate) / 6, 0, 1); gaugeVal = lerp(gaugeVal, target, 1 - Math.exp(-dt * 5));
+  gc.lineCap = 'round'; gc.lineWidth = 20; gc.strokeStyle = 'rgba(255,255,255,.1)'; gc.beginPath(); gc.arc(cx, cy, r, Math.PI, TAU); gc.stroke();
+  const g = gc.createLinearGradient(cx - r, 0, cx + r, 0); g.addColorStop(0, '#00f0ff'); g.addColorStop(0.55, '#9dff00'); g.addColorStop(1, '#ff2bd6');
+  gc.strokeStyle = g; gc.shadowColor = '#00f0ff'; gc.shadowBlur = 16; gc.beginPath(); gc.arc(cx, cy, r, Math.PI, Math.PI + gaugeVal * Math.PI); gc.stroke(); gc.shadowBlur = 0;
+  gc.strokeStyle = 'rgba(255,255,255,.4)'; gc.lineWidth = 2;
+  for (let k = 0; k <= 10; k++) { const a = Math.PI + k / 10 * Math.PI; gc.beginPath(); gc.moveTo(cx + Math.cos(a) * (r - 22), cy + Math.sin(a) * (r - 22)); gc.lineTo(cx + Math.cos(a) * (r - 32), cy + Math.sin(a) * (r - 32)); gc.stroke(); }
+  const na = Math.PI + gaugeVal * Math.PI + (world.rate > 0 ? Math.sin(G.t * 40) * 0.015 : 0);
+  gc.strokeStyle = '#fff'; gc.lineWidth = 4; gc.shadowColor = '#fff'; gc.shadowBlur = 10; gc.beginPath(); gc.moveTo(cx, cy); gc.lineTo(cx + Math.cos(na) * (r - 38), cy + Math.sin(na) * (r - 38)); gc.stroke(); gc.shadowBlur = 0;
+  gc.fillStyle = '#fff'; gc.beginPath(); gc.arc(cx, cy, 9, 0, TAU); gc.fill();
+  gc.textAlign = 'center'; gc.font = '700 20px Orbitron'; gc.fillStyle = '#9ff'; gc.fillText('VELOCITY', cx, cy - 60); gc.font = '900 26px Orbitron'; gc.fillStyle = '#fff'; gc.fillText(fmt(world.rate) + ' /s', cx, cy - 28);
+}
+function toMenu() {
+  if (room) { try { room.conn && room.conn.close(); } catch (e) {} for (const c of room.conns.values()) { try { c.close(); } catch (e) {} } try { room.peer && room.peer.destroy(); } catch (e) {} }
+  room = null; vis.clear(); race = newRace(); parts.length = 0; saveNow();
+  fade(() => {
+    S = 'menu'; ['hud', 'hint', 'tm-info', 'lobby', 'results', 'room-modal', 'join-modal'].forEach(id => $(id).classList.add('hide'));
+    $('menu').classList.remove('hide'); refreshMenuStats();
+  });
+}
+
+/* ---------------- input ---------------- */
+addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase(); keys[k] = true; Sfx.init();
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) onBoost(); }
+  if (k.startsWith('arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+let ptrDown = false;
+function setTarget(e) { me.tx = clamp(e.clientX / cam.s + cam.x, 20, CFG.WORLD_W + 100); me.ty = clamp(e.clientY / cam.s - cam.y, 95, 820); }
+cv.addEventListener('pointerdown', e => { Sfx.init(); ptrDown = true; if (S === 'race') onBoost(); else if (S === 'world') setTarget(e); });
+cv.addEventListener('pointermove', e => { if (ptrDown && S === 'world') setTarget(e); });
+addEventListener('pointerup', () => { ptrDown = false; });
+addEventListener('resize', resize);
+addEventListener('beforeunload', saveNow);
+
+/* ---------------- buttons ---------------- */
+$('callsign').value = save.name;
+$('callsign').addEventListener('input', e => { save.name = cleanName(e.target.value); me.name = save.name; });
+$('btn-solo').onclick = () => { Sfx.init(); Sfx.ui(); initRoom({ solo: true }); startWorld(true); };
+$('btn-create').onclick = () => { Sfx.init(); Sfx.ui(); createRoom(); };
+$('btn-join').onclick = () => { Sfx.init(); Sfx.ui(); $('join-msg').textContent = ''; $('join-modal').classList.remove('hide'); setTimeout(() => $('join-code').focus(), 50); };
+$('join-cancel').onclick = () => $('join-modal').classList.add('hide');
+$('join-go').onclick = () => { Sfx.ui(); $('join-msg').style.color = '#ffb300'; joinRoom($('join-code').value.trim()); };
+$('join-code').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); });
+$('join-code').addEventListener('keydown', e => { if (e.key === 'Enter') $('join-go').click(); });
+$('room-copy').onclick = () => copyCode($('room-code-big').textContent);
+$('room-enter').onclick = () => { Sfx.ui(); $('room-modal').classList.add('hide'); };
+$('btn-ready').onclick = toggleReady;
+$('btn-leave').onclick = () => leaveLobby();
+$('btn-return').onclick = returnToWorld;
+$('btn-menu').onclick = () => toMenu();
+$('btn-mute').onclick = () => { save.muted = !save.muted; $('btn-mute').textContent = save.muted ? 'SFX OFF' : 'SFX ON'; saveNow(); };
+$('btn-mute').textContent = save.muted ? 'SFX OFF' : 'SFX ON';
+
+/* ============================== 14. MAIN LOOP ============================== */
+function update(dt, now) {
+  G.t += dt; G.dt = dt; G.hudT -= dt; G.saveT += dt; G.lobbyT -= dt;
+  updateParts(dt);
+  if (G.saveT > 3) { G.saveT = 0; saveNow(); }
+  if (!room) return;
+  if (room.isHost) hostTick(dt, now);
+  netTick(dt, now);
+  // players' smoothed visuals
+  for (const p of players()) {
+    if (p.id === room.myId) continue;
+    const v = visOf(p.id); if (!v.init) { v.wx = p.wx; v.wy = p.wy; v.rx = p.rx || 0; v.init = true; }
+    const k = 1 - Math.exp(-dt * 12), ox = v.wx, oy = v.wy, orx = v.rx;
+    v.wx = lerp(v.wx, p.wx, k); v.wy = lerp(v.wy, p.wy, k); v.rx = lerp(v.rx, p.rx || 0, k); v.bv = lerp(v.bv, p.bv || 0, k);
+    const mv = Math.hypot(v.wx - ox, v.wy - oy) / Math.max(dt, 1e-3);
+    if (mv > 8) { v.face = Math.atan2(v.wy - oy, v.wx - ox); v.phase += dt * (8 + mv * 0.03); }
+    v.speed = lerp(v.speed, (v.rx - orx) / Math.max(dt, 1e-3), 0.2);
+  }
+  // scene transitions driven by the (host-authoritative) room phase
+  if (S === 'lobby' && (room.phase === 'countdown' || room.phase === 'racing')) enterRace();
+  if (S === 'world' || S === 'lobby') updateWorld(dt, now);
+  if (S === 'lobby' && G.lobbyT <= 0) { G.lobbyT = 0.12; renderLobby(); }
+  if (S === 'race') updateRace(dt, now);
+  if (S === 'world') updateHud(dt);
+  if (S === 'world') drawGauge(dt);
+}
+function render(now) {
+  const c = ctx; c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, W, H);
+  if (S === 'menu' || !room) drawMenuBg(c, G.t);
+  else if (S === 'world' || S === 'lobby') renderWorld(c, G.t);
+  else renderRace(c, G.t, G.dt, now);
+  const v = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.max(W, H) * 0.75);   // vignette
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
+}
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  try { update(dt, now); render(now); } catch (err) { console.error(err); }
+  requestAnimationFrame(frame);
+}
+resize(); refreshMenuStats(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+  </html>
